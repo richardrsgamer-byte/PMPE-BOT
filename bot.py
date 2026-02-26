@@ -1,29 +1,25 @@
 import os
 import random
-from datetime import time, datetime, timedelta
+import asyncio
+from datetime import time
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-# ==============================
-# CONFIGURAÇÕES
-# ==============================
-TOKEN = "8760211159:AAGjucI7T5HfdUKAPgVOMw74imsPRFHfrxU"           # 🔴 Seu token do BotFather
-CHAT_ID = -1003754183745               # 🔴 Seu chat/grupo ID
+TOKEN = os.environ.get("8760211159:AAGjucI7T5HfdUKAPgVOMw74imsPRFHfrxU")  # 🔴 Use variável de ambiente no Render
+CHAT_ID = int(os.environ.get("CHAT_ID", "-1003754183745"))  # 🔴 também variável de ambiente
 CAMINHO_ARQUIVO = "questoes/constitucional.txt"
 ARQUIVO_PROGRESSO = "progresso.txt"
 QUESTOES_POR_DIA = 15
 
 # ==============================
-# LEITURA DAS QUESTÕES
+# FUNÇÕES
 # ==============================
 def carregar_questoes():
     with open(CAMINHO_ARQUIVO, "r", encoding="utf-8") as f:
         conteudo = f.read()
-    questoes = [q.strip() for q in conteudo.split("===") if q.strip()]
-    return questoes
+    return [q.strip() for q in conteudo.split("===") if q.strip()]
 
 def limitar_explicacao(texto):
-    # Telegram limita explicações longas; corta se necessário
     if len(texto) > 200:
         return texto[:197] + "..."
     return texto
@@ -34,7 +30,6 @@ def parsear_questao(texto):
     opcoes = []
     correta = ""
     comentario = ""
-
     for linha in linhas:
         linha = linha.strip()
         if linha.startswith("PERGUNTA:"):
@@ -45,14 +40,10 @@ def parsear_questao(texto):
             correta = linha.replace("CORRETA:", "").strip()
         elif linha.startswith("COMENTARIO:"):
             comentario = linha.replace("COMENTARIO:", "").strip()
-
     comentario = limitar_explicacao(comentario)
     indice_correto = ["A", "B", "C", "D", "E"].index(correta)
     return pergunta, opcoes, indice_correto, comentario
 
-# ==============================
-# CONTROLE DE PROGRESSO
-# ==============================
 def ler_progresso():
     try:
         with open(ARQUIVO_PROGRESSO, "r") as f:
@@ -65,7 +56,7 @@ def salvar_progresso(valor):
         f.write(str(valor))
 
 # ==============================
-# COMANDOS
+# HANDLERS
 # ==============================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -74,7 +65,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Comentários aparecem apenas após responder."
     )
 
-# comando manual (aleatório)
 async def questao(update: Update, context: ContextTypes.DEFAULT_TYPE):
     questoes = carregar_questoes()
     q = random.choice(questoes)
@@ -89,20 +79,15 @@ async def questao(update: Update, context: ContextTypes.DEFAULT_TYPE):
         is_anonymous=True
     )
 
-# ==============================
-# ENVIO AUTOMÁTICO SEQUENCIAL
-# ==============================
 async def enviar_automatico(context: ContextTypes.DEFAULT_TYPE):
     questoes = carregar_questoes()
     inicio = ler_progresso()
     fim = inicio + QUESTOES_POR_DIA
     bloco = questoes[inicio:fim]
-
-    if not bloco:  # reinicia ao final
+    if not bloco:
         inicio = 0
         fim = QUESTOES_POR_DIA
         bloco = questoes[inicio:fim]
-
     for q in bloco:
         pergunta, opcoes, correta, comentario = parsear_questao(q)
         await context.bot.send_poll(
@@ -114,29 +99,34 @@ async def enviar_automatico(context: ContextTypes.DEFAULT_TYPE):
             explanation=comentario,
             is_anonymous=True
         )
-
     salvar_progresso(fim)
 
 # ==============================
-# INICIALIZAÇÃO E WEBHOOK
+# MAIN ASSÍNCRONO
 # ==============================
-PORT = int(os.environ.get("PORT", 5000))
-URL_RENDER = "https://bot1-pmpe.onrender.com/"  # 🔴 Sua URL do Render
+async def main():
+    PORT = int(os.environ.get("PORT", 5000))
+    URL_RENDER = os.environ.get("RENDER_EXTERNAL_URL", "https://bot1-pmpe.onrender.com/")
 
-app = ApplicationBuilder().token(TOKEN).build()
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("questao", questao))
+    app = ApplicationBuilder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("questao", questao))
 
-# agendar envio diário usando JobQueue
-from telegram.ext import JobQueue
-job_queue = app.job_queue
-job_queue.run_daily(enviar_automatico, time=time(hour=12, minute=0))
+    # JobQueue diário
+    job_queue = app.job_queue
+    job_queue.run_daily(enviar_automatico, time=time(hour=12, minute=0))
 
-print("Bot rodando (modo produção)...")
+    print("Bot rodando (modo produção)...")
 
-# roda webhook
-app.run_webhook(
-    listen="0.0.0.0",
-    port=PORT,
-    webhook_url=URL_RENDER
-)
+    # webhook
+    await app.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        webhook_url=f"{URL_RENDER}/bot"
+    )
+
+# ==============================
+# EXECUTAR
+# ==============================
+if __name__ == "__main__":
+    asyncio.run(main())
