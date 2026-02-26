@@ -1,1 +1,18 @@
+# telegram
 python-telegram-bot[job-queue]==21.6
+
+# HTTP/async necessário para PTB 21.6
+httpx~=0.28
+httpcore==1.*
+
+# Fuso horário para JobQueue
+pytz
+tzlocal
+
+# Dependências auxiliares
+certifi
+anyio
+h11
+idna
+six
+apscheduler==3.10.4
